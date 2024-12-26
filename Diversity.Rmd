@@ -1,0 +1,209 @@
+---
+title: "Diversity_totalFungi_soi"
+author: "SujanBalami"
+date: "2024-12-26"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r load-required-packages}
+library(here)
+library(sp)
+library(gstat)
+library(nlme)
+library(ggplot2)
+library(car)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(emmeans)
+```
+
+```{r}
+# Load the Diversity dataset
+Diversity <- read.csv(here("/Users/sujanbalami/Documents/Postdoc/Research_paper/Molecular_data/Total_fungi/soil/working/New/Diversity", "Diversity.csv"))
+
+# Preview the data
+head(Diversity)
+
+#ensure data types
+Diversity$forest_type <- as.factor (Diversity$forest_type)
+Diversity$season <- as.factor (Diversity$season)
+Diversity$forest_type <- factor(Diversity$forest_type, levels = c("RM", "NF", "AF", "SF"))
+Diversity$season <- factor(Diversity$season, levels = c("Rainy", "Dry"))
+Diversity$latitude_jitter <- jitter(Diversity$latitude, amount = 0.00001)
+Diversity$longitude_jitter <- jitter(Diversity$longitude, amount = 0.00001)
+# Preview the data
+head(Diversity)
+```
+
+```{r check-normality}
+#Shannon index
+shapiro.test(Diversity$shannon)
+
+#ASV richness
+shapiro.test(Diversity$ASV_richness)
+
+#Phylogenetic diversity
+shapiro.test(Diversity$faith_pd)
+```
+
+```{r initial-model}
+#Shannon index
+mod_shannon <- lm(shannon~forest_type*season, data=Diversity)
+summary(mod_shannon)
+residuals_mod_shannon <- resid(mod_shannon)
+shapiro.test(residuals_mod_shannon)
+
+#ASV richness
+mod_ASV <- lm(ASV_richness~forest_type*season, data=Diversity)
+summary(mod_ASV)
+residuals_mod_ASV <- resid(mod_ASV)
+shapiro.test(residuals_mod_ASV)
+
+#Phylogenetic diversity
+mod_faith_pd <- lm(faith_pd~forest_type*season, data=Diversity)
+summary(mod_faith_pd)
+residuals_mod_faith_pd <- resid(mod_faith_pd)
+shapiro.test(residuals_mod_faith_pd)
+```
+
+```{r semivariogram}
+coords_jitter <- data.frame(Diversity$latitude_jitter, Diversity$longitude_jitter) # Coordinates and residuals
+
+#Shannon index
+data <- data.frame(coords_jitter, residuals = residuals_mod_shannon) # Prepare data frame for the semivariogram
+coordinates(data) <- ~Diversity.longitude_jitter + Diversity.latitude_jitter # Create spatial object
+proj4string(data) <- CRS("+proj=longlat +datum=WGS84") # Create spatial object
+variog <- variogram(residuals ~ 1, data = data) # Compute semivariogram
+plot(variog, main = "Semivariogram of Residuals Shannon index", xlab = "Distance", ylab = "Semivariance") # Plot the semivariogram
+
+#ASV richness
+data <- data.frame(coords_jitter, residuals = residuals_mod_ASV) # Prepare data frame for the semivariogram
+coordinates(data) <- ~Diversity.longitude_jitter + Diversity.latitude_jitter # Create spatial object
+proj4string(data) <- CRS("+proj=longlat +datum=WGS84") # Create spatial object
+variog <- variogram(residuals ~ 1, data = data) # Compute semivariogram
+plot(variog, main = "Semivariogram of Residuals ASV richness", xlab = "Distance", ylab = "Semivariance") # Plot the semivariogram
+
+#phylogenetic diversity
+data <- data.frame(coords_jitter, residuals = residuals_mod_faith_pd) # Prepare data frame for the semivariogram
+coordinates(data) <- ~Diversity.longitude_jitter + Diversity.latitude_jitter # Create spatial object
+proj4string(data) <- CRS("+proj=longlat +datum=WGS84") # Create spatial object
+variog <- variogram(residuals ~ 1, data = data) # Compute semivariogram
+plot(variog, main = "Semivariogram of Residuals Faith PD", xlab = "Distance", ylab = "Semivariance") # Plot the semivariogram
+```
+
+```{r model-final}
+
+#Shannon index
+mod_shannon <- lm(shannon~forest_type*season, data=Diversity) #final model
+summary(mod_shannon) #summary
+residuals_mod_shannon <- resid(mod_shannon) #extract residuals
+shapiro.test(residuals_mod_shannon) #check residuals normality
+Anova(mod_shannon, type="III") #check the significance of each predictor
+
+#ASV richness
+mod_ASV_richness <- lm(ASV_richness~forest_type*season, data=Diversity) #final model
+summary(mod_ASV_richness) #summary
+residuals_mod_ASV <- resid(mod_ASV_richness) #extract residuals
+shapiro.test(residuals_mod_ASV) #check residuals normality
+Anova(mod_ASV_richness, type="III") #check the significance of each predictor
+
+#Phylogenetic diversity
+mod_faith_pd <- lm(faith_pd~forest_type*season, data=Diversity) #final model
+summary(mod_faith_pd) #summary
+residuals_mod_faith_pd <- resid(mod_faith_pd) #extract residuals
+shapiro.test(residuals_mod_faith_pd) #check residuals normality
+Anova(mod_faith_pd, type="III") #check the significance of each predictor
+```
+
+```{r plots}
+#ASV richness
+predicted_data_ASV_richness <- emmeans(mod_ASV_richness, ~ forest_type * season) %>%
+  as.data.frame()
+predicted_data_ASV_richness$ASV_richness=predicted_data_ASV_richness$emmean
+Figure_ASV=ggplot() +
+  geom_jitter(data = Diversity, aes(x = forest_type, y = ASV_richness, color = season), width = 0.00001, alpha = 0.5) + # Add jittered raw data points
+    geom_line(data = predicted_data_ASV_richness, aes(x = forest_type, y = ASV_richness, group = season, color = season)) + # Add predicted lines
+   geom_errorbar(data = predicted_data_ASV_richness, aes(x = forest_type, ymin = lower.CL, ymax = upper.CL, color = season), width = 0.2) +  # Add error bars
+  scale_color_manual(values = c("Rainy" = "cyan3", "Dry" = "pink3")) +
+   labs(title="ASV richness", x = "Forest types", y = NULL) +  # Labels
+  theme(
+    plot.title = element_text(size = 10, face = "bold", hjust = 0.5),  
+    axis.title = element_text(size = 10, color = "black"),                
+    axis.text = element_text(size = 10, color = "black"),                 
+    legend.text = element_text(size = 10),               
+    legend.title = element_text(size = 10),
+    legend.position = "none",
+    panel.background = element_blank(),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "grey", fill = NA, size = 1)
+  )
+
+#Shannon index 
+predicted_data_shannon <- emmeans(mod_shannon, ~ forest_type * season) %>%
+  as.data.frame()
+predicted_data_shannon$shannon=predicted_data_shannon$emmean
+Figure_shannon=ggplot() +
+  geom_jitter(data = Diversity, aes(x = forest_type, y = shannon, color = season), width = 0.00001, alpha = 0.5) + # Add jittered raw data points
+    geom_line(data = predicted_data_shannon, aes(x = forest_type, y = shannon, group = season, color = season)) + # Add predicted lines
+   geom_errorbar(data = predicted_data_shannon, aes(x = forest_type, ymin = lower.CL, ymax = upper.CL, color = season), width = 0.2) +  # Add error bars
+  scale_color_manual(values = c("Rainy" = "cyan3", "Dry" = "pink3")) +
+   labs(title="Shannon index", x = "Forest types", y = NULL) +  # Labels
+  theme(
+    plot.title = element_text(size = 10, face = "bold", hjust = 0.5),  
+    axis.title = element_text(size = 10, color = "black"),                
+    axis.text = element_text(size = 10, color = "black"),                 
+    legend.text = element_text(size = 10),               
+    legend.title = element_text(size = 10),
+    legend.position = "none",
+    panel.background = element_blank(),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "grey", fill = NA, size = 1)
+  )
+
+#Phylogenetic diversity
+predicted_data_faith_PD <- emmeans(mod_faith_pd, ~ forest_type * season) %>%
+  as.data.frame()
+predicted_data_faith_PD$faith_pd=predicted_data_faith_PD$emmean
+Figure_faith_PD=ggplot() +
+  geom_jitter(data = Diversity, aes(x = forest_type, y = faith_pd, color = season), width = 0.00001, alpha = 0.5) + # Add jittered raw data points
+    geom_line(data = predicted_data_faith_PD, aes(x = forest_type, y = faith_pd, group = season, color = season)) + # Add predicted lines
+   geom_errorbar(data = predicted_data_faith_PD, aes(x = forest_type, ymin = lower.CL, ymax = upper.CL, color = season), width = 0.2) +  # Add error bars
+  scale_color_manual(values = c("Rainy" = "cyan3", "Dry" = "pink3")) +
+   labs(title="Phylogenetic diversity", x = "Forest types", y = NULL) +  # Labels
+  theme(
+    plot.title = element_text(size = 10, face = "bold", hjust = 0.5),  
+    axis.title = element_text(size = 10, color = "black"),                
+    axis.text = element_text(size = 10, color = "black"),                 
+    legend.text = element_text(size = 10),               
+    legend.title = element_text(size = 10),
+    legend.position = "none",
+    panel.background = element_blank(),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "grey", fill = NA, size = 1)
+  )
+```
+
+```{r save-figures}
+# Arrange the three plots in one row
+combined_plot2 <- grid.arrange(Figure_ASV, Figure_shannon, Figure_faith_PD, nrow = 1)
+combined_plot2
+# Save the arranged plot to a file
+ggsave("combined_plot2.png", plot = combined_plot2, width = 6.5, height = 2, dpi = 300)
+```
+
+```{r pairwise-comparison}
+#Shannon index
+emmeans_interaction_shannon <- emmeans(mod_shannon, ~ forest_type * season)
+pairs(emmeans_interaction_shannon, adjust = "bonferroni")
+
+#ASV richness
+emmeans_interaction_ASV_richness <- emmeans(mod_ASV_richness, ~ forest_type * season)
+pairs(emmeans_interaction_ASV_richness, adjust = "bonferroni")
+
+#Phylogenetic diversity
+emmeans_interaction_faith_pd <- emmeans(mod_faith_pd, ~ forest_type * season)
+pairs(emmeans_interaction_faith_pd, adjust = "bonferroni")
+```
